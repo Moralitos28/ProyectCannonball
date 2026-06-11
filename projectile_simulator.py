@@ -40,6 +40,9 @@ class ProjectileSimulator:
         "Lanza una simulación para ver el desarrollo matemático con "
         "sustituciones numéricas."
     )
+    INITIAL_MATH_BLOCKS = [
+        ("note", INITIAL_MATH_EXPLANATION),
+    ]
     RESULT_LABELS = [
         ("mode", "Modo de simulación:"),
         ("target_range", "Distancia objetivo:"),
@@ -309,12 +312,16 @@ class ProjectileSimulator:
         self.math_text_widget = tk.Text(
             parent,
             wrap=tk.WORD,
-            font=("Menlo", 12),
+            font=("Helvetica", 12),
             padx=16,
             pady=12,
             state=tk.DISABLED,
+            background="#fbfbfb",
+            borderwidth=0,
+            highlightthickness=0,
         )
         self.math_text_widget.grid(row=1, column=0, sticky="nsew")
+        self._configure_math_text_tags()
 
         scrollbar = ttk.Scrollbar(
             parent,
@@ -323,6 +330,80 @@ class ProjectileSimulator:
         )
         scrollbar.grid(row=1, column=1, sticky="ns")
         self.math_text_widget.configure(yscrollcommand=scrollbar.set)
+
+    def _configure_math_text_tags(self):
+        """Define estilos para la explicación matemática."""
+        self.math_text_widget.tag_configure(
+            "title",
+            font=("Helvetica", 20, "bold"),
+            foreground="#1f2933",
+            spacing1=6,
+            spacing3=12,
+        )
+        self.math_text_widget.tag_configure(
+            "section",
+            font=("Helvetica", 15, "bold"),
+            foreground="#1f4e79",
+            spacing1=16,
+            spacing3=8,
+        )
+        self.math_text_widget.tag_configure(
+            "label",
+            font=("Helvetica", 11, "bold"),
+            foreground="#5f6368",
+            spacing1=6,
+            spacing3=4,
+        )
+        self.math_text_widget.tag_configure(
+            "formula",
+            font=("Menlo", 13),
+            background="#eef5ff",
+            foreground="#111827",
+            lmargin1=18,
+            lmargin2=18,
+            rmargin=18,
+            spacing1=4,
+            spacing3=6,
+        )
+        self.math_text_widget.tag_configure(
+            "substitution",
+            font=("Menlo", 13),
+            background="#f6f8fa",
+            foreground="#1f2933",
+            lmargin1=18,
+            lmargin2=18,
+            rmargin=18,
+            spacing1=4,
+            spacing3=6,
+        )
+        self.math_text_widget.tag_configure(
+            "result",
+            font=("Helvetica", 12, "bold"),
+            background="#e8f5e9",
+            foreground="#1b5e20",
+            lmargin1=18,
+            lmargin2=18,
+            rmargin=18,
+            spacing1=4,
+            spacing3=10,
+        )
+        self.math_text_widget.tag_configure(
+            "data",
+            font=("Menlo", 12),
+            background="#fff7e6",
+            foreground="#2f3136",
+            lmargin1=18,
+            lmargin2=18,
+            rmargin=18,
+            spacing1=4,
+            spacing3=6,
+        )
+        self.math_text_widget.tag_configure(
+            "note",
+            font=("Helvetica", 13, "italic"),
+            foreground="#5f6368",
+            spacing1=12,
+        )
 
     def _update_playback_label(self, _event=None):
         """Sincroniza la etiqueta visible con el valor del control deslizante."""
@@ -434,6 +515,108 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
         {self.GRAVITY:.2f} = {range_x:.2f} m
 """
 
+    def build_math_blocks(self):
+        """Construye bloques etiquetados para renderizar la explicación."""
+        if self.trajectory is None:
+            return self.INITIAL_MATH_BLOCKS
+
+        initial_velocity = self.simulation_context["initial_velocity"]
+        angle = self.simulation_context["angle"]
+        v0x = self.trajectory["v0x"]
+        v0y = self.trajectory["v0y"]
+        time_total = self.trajectory["time_total"]
+        height_max = self.trajectory["height_max"]
+        range_x = self.trajectory["range_x"]
+
+        return [
+            ("title", "Math Explained"),
+            ("section", "Datos de la simulación"),
+            (
+                "data",
+                "\n".join(
+                    [
+                        f"v_0 = {initial_velocity:.2f} m/s",
+                        f"theta = {angle:.2f}°",
+                        f"g = {self.GRAVITY:.2f} m/s²",
+                        "x_0 = 0 m",
+                        "y_0 = 0 m",
+                    ]
+                ),
+            ),
+            ("section", "1. Componentes de la velocidad inicial"),
+            ("label", "Fórmula general"),
+            ("formula", "v_{0x} = v_0 · cos(theta)\nv_{0y} = v_0 · sin(theta)"),
+            ("label", "Sustitución"),
+            (
+                "substitution",
+                "\n".join(
+                    [
+                        (
+                            "v_{0x} = "
+                            f"{initial_velocity:.2f} · cos({angle:.2f}°)"
+                            f" = {v0x:.2f} m/s"
+                        ),
+                        (
+                            "v_{0y} = "
+                            f"{initial_velocity:.2f} · sin({angle:.2f}°)"
+                            f" = {v0y:.2f} m/s"
+                        ),
+                    ]
+                ),
+            ),
+            ("section", "2. Posición horizontal en función del tiempo"),
+            ("label", "Fórmula general"),
+            ("formula", "x(t) = x_0 + v_{0x} · t"),
+            ("label", "Sustitución"),
+            ("substitution", f"x(t) = 0 + {v0x:.2f} · t"),
+            ("section", "3. Posición vertical en función del tiempo"),
+            ("label", "Fórmula general"),
+            ("formula", "y(t) = y_0 + v_{0y} · t - 1/2 · g · t²"),
+            ("label", "Sustitución"),
+            (
+                "substitution",
+                f"y(t) = 0 + {v0y:.2f} · t - 1/2 · {self.GRAVITY:.2f} · t²",
+            ),
+            ("section", "4. Trayectoria independiente del tiempo: y(x)"),
+            ("label", "Fórmula general"),
+            (
+                "formula",
+                "y(x) = x · tan(theta) - (g · x²) / "
+                "(2 · v_0² · cos²(theta))",
+            ),
+            ("label", "Sustitución"),
+            (
+                "substitution",
+                "y(x) = x · tan({angle:.2f}°) - ({gravity:.2f} · x²) / "
+                "(2 · {velocity:.2f}² · cos²({angle:.2f}°))".format(
+                    angle=angle,
+                    gravity=self.GRAVITY,
+                    velocity=initial_velocity,
+                ),
+            ),
+            ("section", "5. Puntos clave del movimiento"),
+            ("label", "Tiempo de vuelo total"),
+            ("formula", "t_total = 2 · v_{0y} / g"),
+            (
+                "result",
+                f"t_total = 2 · {v0y:.2f} / {self.GRAVITY:.2f} = {time_total:.2f} s",
+            ),
+            ("label", "Altura máxima alcanzada"),
+            ("formula", "Y_max = v_{0y}² / (2g)"),
+            (
+                "result",
+                f"Y_max = {v0y:.2f}² / (2 · {self.GRAVITY:.2f}) = "
+                f"{height_max:.2f} m",
+            ),
+            ("label", "Alcance horizontal máximo"),
+            ("formula", "X_max = v_0² · sin(2theta) / g"),
+            (
+                "result",
+                f"X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) / "
+                f"{self.GRAVITY:.2f} = {range_x:.2f} m",
+            ),
+        ]
+
     def update_math_explanation(self):
         """Refresca la pestaña matemática con el texto actual."""
         self.current_math_explanation = self.build_math_explanation()
@@ -442,7 +625,8 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
 
         self.math_text_widget.configure(state=tk.NORMAL)
         self.math_text_widget.delete("1.0", tk.END)
-        self.math_text_widget.insert("1.0", self.current_math_explanation)
+        for tag, text in self.build_math_blocks():
+            self.math_text_widget.insert(tk.END, text + "\n\n", tag)
         self.math_text_widget.configure(state=tk.DISABLED)
 
     def validate_manual_inputs(self):
