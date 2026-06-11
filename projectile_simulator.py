@@ -36,6 +36,10 @@ class ProjectileSimulator:
     MIN_ANIMATION_INTERVAL_MS = 8
     MIN_TRAJECTORY_FRAMES = 90
     FRAMES_PER_SECOND_OF_FLIGHT = 90
+    INITIAL_MATH_EXPLANATION = (
+        "Lanza una simulación para ver el desarrollo matemático con "
+        "sustituciones numéricas."
+    )
     RESULT_LABELS = [
         ("mode", "Modo de simulación:"),
         ("target_range", "Distancia objetivo:"),
@@ -75,6 +79,8 @@ class ProjectileSimulator:
         self.result_vars = {}
         self.result_labels = {}
         self.realtime_vars = {}
+        self.math_text_widget = None
+        self.current_math_explanation = self.INITIAL_MATH_EXPLANATION
 
         self._configure_style()
         self._build_interface()
@@ -119,7 +125,7 @@ class ProjectileSimulator:
         self._build_input_panel(sidebar)
         self._build_results_panel(sidebar)
         self._build_realtime_panel(sidebar)
-        self._build_plot(graph_panel)
+        self._build_output_notebook(graph_panel)
 
     def _build_input_panel(self, parent):
         """Construye los campos de entrada y controles de simulación."""
@@ -270,6 +276,54 @@ class ProjectileSimulator:
         self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
         self._setup_empty_plot()
 
+    def _build_output_notebook(self, parent):
+        """Construye las pestañas de gráfica y explicación matemática."""
+        output_notebook = ttk.Notebook(parent)
+        output_notebook.grid(row=0, column=0, sticky="nsew")
+
+        trajectory_tab = ttk.Frame(output_notebook)
+        math_tab = ttk.Frame(output_notebook)
+        output_notebook.add(trajectory_tab, text="Trajectory")
+        output_notebook.add(math_tab, text="Math Explained")
+
+        trajectory_tab.rowconfigure(0, weight=1)
+        trajectory_tab.columnconfigure(0, weight=1)
+        math_tab.rowconfigure(1, weight=1)
+        math_tab.columnconfigure(0, weight=1)
+
+        self._build_plot(trajectory_tab)
+        self._build_math_panel(math_tab)
+
+    def _build_math_panel(self, parent):
+        """Construye la vista scrollable del desarrollo matemático."""
+        toolbar = ttk.Frame(parent, padding=(8, 8, 8, 4))
+        toolbar.grid(row=0, column=0, columnspan=2, sticky="ew")
+        toolbar.columnconfigure(0, weight=1)
+
+        ttk.Button(
+            toolbar,
+            text="Copiar",
+            command=self.copy_math_explanation,
+        ).grid(row=0, column=1, sticky=tk.E)
+
+        self.math_text_widget = tk.Text(
+            parent,
+            wrap=tk.WORD,
+            font=("Menlo", 12),
+            padx=16,
+            pady=12,
+            state=tk.DISABLED,
+        )
+        self.math_text_widget.grid(row=1, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(
+            parent,
+            orient=tk.VERTICAL,
+            command=self.math_text_widget.yview,
+        )
+        scrollbar.grid(row=1, column=1, sticky="ns")
+        self.math_text_widget.configure(yscrollcommand=scrollbar.set)
+
     def _update_playback_label(self, _event=None):
         """Sincroniza la etiqueta visible con el valor del control deslizante."""
         self.playback_label.config(text=f"{self.playback_var.get():.2f}x")
@@ -297,6 +351,99 @@ class ProjectileSimulator:
             "\n".join(lines),
             "Resultados copiados al portapapeles.",
         )
+
+    def copy_math_explanation(self):
+        """Copia el desarrollo matemático visible."""
+        self.copy_to_clipboard(
+            self.current_math_explanation,
+            "Desarrollo matemático copiado al portapapeles.",
+        )
+
+    def build_math_explanation(self):
+        """Construye el desarrollo matemático con los valores actuales."""
+        if self.trajectory is None:
+            return self.INITIAL_MATH_EXPLANATION
+
+        initial_velocity = self.simulation_context["initial_velocity"]
+        angle = self.simulation_context["angle"]
+        v0x = self.trajectory["v0x"]
+        v0y = self.trajectory["v0y"]
+        time_total = self.trajectory["time_total"]
+        height_max = self.trajectory["height_max"]
+        range_x = self.trajectory["range_x"]
+
+        return f"""Math Explained
+================
+
+Datos de la simulación
+----------------------
+v_0 = {initial_velocity:.2f} m/s
+theta = {angle:.2f}°
+g = {self.GRAVITY:.2f} m/s²
+x_0 = 0 m
+y_0 = 0 m
+
+1. Componentes de la velocidad inicial
+--------------------------------------
+Fórmula general:
+v_{{0x}} = v_0 · cos(theta)
+v_{{0y}} = v_0 · sin(theta)
+
+Sustitución:
+v_{{0x}} = {initial_velocity:.2f} · cos({angle:.2f}°) = {v0x:.2f} m/s
+v_{{0y}} = {initial_velocity:.2f} · sin({angle:.2f}°) = {v0y:.2f} m/s
+
+2. Posición horizontal en función del tiempo
+--------------------------------------------
+Fórmula general:
+x(t) = x_0 + v_{{0x}} · t
+
+Sustitución:
+x(t) = 0 + {v0x:.2f} · t
+
+3. Posición vertical en función del tiempo
+------------------------------------------
+Fórmula general:
+y(t) = y_0 + v_{{0y}} · t - 1/2 · g · t²
+
+Sustitución:
+y(t) = 0 + {v0y:.2f} · t - 1/2 · {self.GRAVITY:.2f} · t²
+
+4. Trayectoria independiente del tiempo: y(x)
+---------------------------------------------
+Fórmula general:
+y(x) = x · tan(theta) - (g · x²) / (2 · v_0² · cos²(theta))
+
+Sustitución:
+y(x) = x · tan({angle:.2f}°) - ({self.GRAVITY:.2f} · x²) /
+       (2 · {initial_velocity:.2f}² · cos²({angle:.2f}°))
+
+5. Puntos clave del movimiento
+------------------------------
+Tiempo de vuelo total:
+t_total = 2 · v_{{0y}} / g
+t_total = 2 · {v0y:.2f} / {self.GRAVITY:.2f} = {time_total:.2f} s
+
+Altura máxima alcanzada:
+Y_max = v_{{0y}}² / (2g)
+Y_max = {v0y:.2f}² / (2 · {self.GRAVITY:.2f}) = {height_max:.2f} m
+
+Alcance horizontal máximo:
+X_max = v_0² · sin(2theta) / g
+X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
+        {self.GRAVITY:.2f} = {range_x:.2f} m
+"""
+
+    def update_math_explanation(self):
+        """Refresca la pestaña matemática con el texto actual."""
+        self.current_math_explanation = self.build_math_explanation()
+        if self.math_text_widget is None:
+            return
+
+        self.math_text_widget.configure(state=tk.NORMAL)
+        self.math_text_widget.delete("1.0", tk.END)
+        self.math_text_widget.insert("1.0", self.current_math_explanation)
+        self.math_text_widget.configure(state=tk.DISABLED)
 
     def validate_manual_inputs(self):
         """Valida velocidad y ángulo para el modo manual."""
@@ -436,6 +583,7 @@ class ProjectileSimulator:
         }
         self._update_general_results(frame=0)
         self._setup_simulation_plot(angle)
+        self.update_math_explanation()
 
         interval_ms = max(
             self.MIN_ANIMATION_INTERVAL_MS,
@@ -485,6 +633,7 @@ class ProjectileSimulator:
         for variable in self.realtime_vars.values():
             variable.set("--")
 
+        self.update_math_explanation()
         self.canvas.draw_idle()
 
     def _stop_animation(self):
