@@ -37,6 +37,7 @@ class ProjectileSimulator:
         self.impact_artist = None
 
         self.result_vars = {}
+        self.result_labels = {}
         self.realtime_vars = {}
 
         self._configure_style()
@@ -187,9 +188,16 @@ class ProjectileSimulator:
         for row, (key, label_text) in enumerate(result_labels):
             ttk.Label(results_frame, text=label_text).grid(row=row, column=0, sticky=tk.W, pady=2)
             self.result_vars[key] = tk.StringVar(value="--")
+            self.result_labels[key] = label_text
             ttk.Label(results_frame, textvariable=self.result_vars[key]).grid(
                 row=row, column=1, sticky=tk.E, pady=2
             )
+
+        ttk.Button(
+            results_frame,
+            text="Copiar resultados",
+            command=self.copy_all_results,
+        ).grid(row=len(result_labels), column=0, columnspan=2, sticky=tk.EW, pady=(10, 0))
 
         results_frame.columnconfigure(1, weight=1)
 
@@ -228,6 +236,24 @@ class ProjectileSimulator:
 
     def _update_playback_label(self, _event=None):
         self.playback_label.config(text=f"{self.playback_var.get():.2f}x")
+
+    def copy_to_clipboard(self, text, confirmation):
+        """Copia texto al portapapeles del sistema."""
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.root.update()
+        messagebox.showinfo("Copiado", confirmation)
+
+    def copy_all_results(self):
+        """Copia todos los resultados generales en formato de texto."""
+        lines = []
+        for key, label in self.result_labels.items():
+            lines.append(f"{label.rstrip(':')}: {self.result_vars[key].get()}")
+
+        self.copy_to_clipboard(
+            "\n".join(lines),
+            "Resultados copiados al portapapeles.",
+        )
 
     def validate_manual_inputs(self):
         """Valida velocidad y angulo para la simulacion manual."""
