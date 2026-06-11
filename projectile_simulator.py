@@ -6,11 +6,14 @@ del aire.
 """
 
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, ttk
 
 import matplotlib.animation as animation
+import matplotlib.image as mpimg
 import matplotlib.patches as patches
 import numpy as np
+from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
@@ -19,6 +22,7 @@ class ProjectileSimulator:
     """Interfaz principal y logica de simulacion del proyectil."""
 
     GRAVITY = 9.81
+    CANNON_IMAGE_PATH = Path(__file__).with_name("toy-style-cannon-e9cf.png")
 
     def __init__(self, root):
         self.root = root
@@ -29,6 +33,7 @@ class ProjectileSimulator:
         self.animation = None
         self.trajectory = None
         self.simulation_context = {}
+        self.cannon_image = self._load_cannon_image()
         self.cannon_patch = None
         self.cannon_wheel = None
         self.ball_artist = None
@@ -236,6 +241,12 @@ class ProjectileSimulator:
 
     def _update_playback_label(self, _event=None):
         self.playback_label.config(text=f"{self.playback_var.get():.2f}x")
+
+    def _load_cannon_image(self):
+        """Carga el simbolo del canon si el archivo esta disponible."""
+        if not self.CANNON_IMAGE_PATH.exists():
+            return None
+        return mpimg.imread(self.CANNON_IMAGE_PATH)
 
     def copy_to_clipboard(self, text, confirmation):
         """Copia texto al portapapeles del sistema."""
@@ -518,6 +529,20 @@ class ProjectileSimulator:
         self.canvas.draw_idle()
 
     def _draw_cannon(self, angle_degrees):
+        if self.cannon_image is not None:
+            image = OffsetImage(self.cannon_image, zoom=0.82)
+            cannon_symbol = AnnotationBbox(
+                image,
+                (0, 0),
+                xybox=(12, 12),
+                xycoords="data",
+                boxcoords="offset points",
+                frameon=False,
+                zorder=6,
+            )
+            self.ax.add_artist(cannon_symbol)
+            return
+
         barrel_length = 0.9
         barrel_width = 0.18
         cannon_angle = max(8, min(angle_degrees, 75))
