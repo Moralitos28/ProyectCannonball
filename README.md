@@ -116,6 +116,21 @@ v0 = sqrt(Rg)
 Con esa velocidad inicial calculada y el ángulo ideal de 45°, el simulador
 genera la misma animación de trayectoria parabólica.
 
+## Organización del código
+
+El archivo principal `projectile_simulator.py` contiene la clase
+`ProjectileSimulator`, que centraliza la interfaz, los cálculos físicos y la
+animación. El código está separado por responsabilidades:
+
+- Construcción de interfaz: paneles de entrada, resultados, datos en tiempo real
+  y gráfica.
+- Validación de entradas: modo manual, modo por distancia objetivo y velocidad de
+  reproducción.
+- Cálculos físicos: trayectoria parabólica y lanzamiento ideal para un alcance
+  dado.
+- Animación y visualización: actualización de la bala, trayectoria recorrida,
+  marcadores y resultados visibles.
+
 ## Ejemplo de prueba
 
 Modo **Velocidad y ángulo**:

@@ -1,8 +1,7 @@
-"""Simulador de movimiento parabolico para una bala de canon.
+"""Simulador de movimiento parabólico para una bala de cañón.
 
-La aplicacion usa Tkinter para la interfaz, Matplotlib para la grafica y
-FuncAnimation para mostrar el movimiento de un proyectil ideal sin resistencia
-del aire.
+La aplicación usa Tkinter para la interfaz, Matplotlib para la gráfica y
+FuncAnimation para animar un proyectil ideal sin resistencia del aire.
 """
 
 import tkinter as tk
@@ -13,29 +12,61 @@ import matplotlib.animation as animation
 import matplotlib.image as mpimg
 import matplotlib.patches as patches
 import numpy as np
-from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 
 
 class ProjectileSimulator:
-    """Interfaz principal y logica de simulacion del proyectil."""
+    """Coordina la interfaz, los cálculos físicos y la animación."""
 
     GRAVITY = 9.81
+    WINDOW_TITLE = "Simulador de movimiento parabólico"
+    WINDOW_SIZE = "1180x760"
+    MIN_WINDOW_SIZE = (980, 680)
     CANNON_IMAGE_PATH = Path(__file__).with_name("toy-style-cannon-e9cf.png")
+    DEFAULT_MANUAL_VELOCITY = "13"
+    DEFAULT_MANUAL_ANGLE = "30"
+    DEFAULT_TARGET_RANGE = "14.92"
+    DEFAULT_PLAYBACK_SPEED = 1.0
+    IDEAL_ANGLE_DEGREES = 45.0
+    MIN_PLAYBACK_SPEED = 0.25
+    MAX_PLAYBACK_SPEED = 3.0
+    BASE_ANIMATION_INTERVAL_MS = 25
+    MIN_ANIMATION_INTERVAL_MS = 8
+    MIN_TRAJECTORY_FRAMES = 90
+    FRAMES_PER_SECOND_OF_FLIGHT = 90
+    RESULT_LABELS = [
+        ("mode", "Modo de simulación:"),
+        ("target_range", "Distancia objetivo:"),
+        ("initial_velocity", "Velocidad inicial usada:"),
+        ("launch_angle", "Ángulo usado:"),
+        ("v0x", "Velocidad horizontal:"),
+        ("v0y", "Velocidad vertical inicial:"),
+        ("time_total", "Tiempo total de vuelo:"),
+        ("height_max", "Altura máxima:"),
+        ("range_x", "Alcance horizontal:"),
+        ("current_vy", "Velocidad vertical actual:"),
+        ("current_speed", "Rapidez total actual:"),
+    ]
+    REALTIME_LABELS = [
+        ("time", "Tiempo transcurrido:"),
+        ("x", "Posición horizontal:"),
+        ("y", "Posición vertical:"),
+        ("vx", "Velocidad horizontal:"),
+        ("vy", "Velocidad vertical:"),
+    ]
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Simulador de movimiento parabólico")
-        self.root.geometry("1180x760")
-        self.root.minsize(980, 680)
+        self.root.title(self.WINDOW_TITLE)
+        self.root.geometry(self.WINDOW_SIZE)
+        self.root.minsize(*self.MIN_WINDOW_SIZE)
 
         self.animation = None
         self.trajectory = None
         self.simulation_context = {}
         self.cannon_image = self._load_cannon_image()
-        self.cannon_patch = None
-        self.cannon_wheel = None
         self.ball_artist = None
         self.path_artist = None
         self.max_height_artist = None
@@ -50,6 +81,7 @@ class ProjectileSimulator:
         self.reset_simulation()
 
     def _configure_style(self):
+        """Define una apariencia consistente para los widgets principales."""
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("Title.TLabel", font=("Helvetica", 20, "bold"))
@@ -59,12 +91,13 @@ class ProjectileSimulator:
         style.configure("Accent.TButton", font=("Helvetica", 11, "bold"))
 
     def _build_interface(self):
+        """Construye el contenedor principal con panel lateral y gráfica."""
         main_container = ttk.Frame(self.root, padding=12)
         main_container.pack(fill=tk.BOTH, expand=True)
 
         title = ttk.Label(
             main_container,
-            text="Simulador de movimiento parabólico",
+            text=self.WINDOW_TITLE,
             style="Title.TLabel",
         )
         title.pack(anchor=tk.CENTER, pady=(0, 12))
@@ -89,6 +122,7 @@ class ProjectileSimulator:
         self._build_plot(graph_panel)
 
     def _build_input_panel(self, parent):
+        """Construye los campos de entrada y controles de simulación."""
         input_frame = ttk.LabelFrame(
             parent,
             text="Panel de entrada de datos",
@@ -110,14 +144,14 @@ class ProjectileSimulator:
         )
         self.velocity_entry = ttk.Entry(manual_tab, width=18)
         self.velocity_entry.grid(row=0, column=1, sticky=tk.EW, pady=4)
-        self.velocity_entry.insert(0, "13")
+        self.velocity_entry.insert(0, self.DEFAULT_MANUAL_VELOCITY)
 
         ttk.Label(manual_tab, text="Ángulo de lanzamiento (°):").grid(
             row=1, column=0, sticky=tk.W, pady=4
         )
         self.angle_entry = ttk.Entry(manual_tab, width=18)
         self.angle_entry.grid(row=1, column=1, sticky=tk.EW, pady=4)
-        self.angle_entry.insert(0, "30")
+        self.angle_entry.insert(0, self.DEFAULT_MANUAL_ANGLE)
         manual_tab.columnconfigure(1, weight=1)
 
         ttk.Label(ideal_tab, text="Distancia objetivo (m):").grid(
@@ -125,7 +159,7 @@ class ProjectileSimulator:
         )
         self.target_range_entry = ttk.Entry(ideal_tab, width=18)
         self.target_range_entry.grid(row=0, column=1, sticky=tk.EW, pady=4)
-        self.target_range_entry.insert(0, "14.92")
+        self.target_range_entry.insert(0, self.DEFAULT_TARGET_RANGE)
 
         ttk.Label(
             ideal_tab,
@@ -137,11 +171,11 @@ class ProjectileSimulator:
         ttk.Label(input_frame, text="Velocidad de reproducción:").grid(
             row=1, column=0, sticky=tk.W, pady=(12, 4)
         )
-        self.playback_var = tk.DoubleVar(value=1.0)
+        self.playback_var = tk.DoubleVar(value=self.DEFAULT_PLAYBACK_SPEED)
         self.playback_scale = ttk.Scale(
             input_frame,
-            from_=0.25,
-            to=3.0,
+            from_=self.MIN_PLAYBACK_SPEED,
+            to=self.MAX_PLAYBACK_SPEED,
             variable=self.playback_var,
             orient=tk.HORIZONTAL,
             command=self._update_playback_label,
@@ -168,6 +202,7 @@ class ProjectileSimulator:
         input_frame.columnconfigure(1, weight=1)
 
     def _build_results_panel(self, parent):
+        """Construye el panel de resultados generales calculados."""
         results_frame = ttk.LabelFrame(
             parent,
             text="Panel de resultados",
@@ -176,22 +211,13 @@ class ProjectileSimulator:
         )
         results_frame.pack(fill=tk.X, pady=(0, 10))
 
-        result_labels = [
-            ("mode", "Modo de simulación:"),
-            ("target_range", "Distancia objetivo:"),
-            ("initial_velocity", "Velocidad inicial usada:"),
-            ("launch_angle", "Ángulo usado:"),
-            ("v0x", "Velocidad horizontal:"),
-            ("v0y", "Velocidad vertical inicial:"),
-            ("time_total", "Tiempo total de vuelo:"),
-            ("height_max", "Altura máxima:"),
-            ("range_x", "Alcance horizontal:"),
-            ("current_vy", "Velocidad vertical actual:"),
-            ("current_speed", "Rapidez total actual:"),
-        ]
-
-        for row, (key, label_text) in enumerate(result_labels):
-            ttk.Label(results_frame, text=label_text).grid(row=row, column=0, sticky=tk.W, pady=2)
+        for row, (key, label_text) in enumerate(self.RESULT_LABELS):
+            ttk.Label(results_frame, text=label_text).grid(
+                row=row,
+                column=0,
+                sticky=tk.W,
+                pady=2,
+            )
             self.result_vars[key] = tk.StringVar(value="--")
             self.result_labels[key] = label_text
             ttk.Label(results_frame, textvariable=self.result_vars[key]).grid(
@@ -202,11 +228,18 @@ class ProjectileSimulator:
             results_frame,
             text="Copiar resultados",
             command=self.copy_all_results,
-        ).grid(row=len(result_labels), column=0, columnspan=2, sticky=tk.EW, pady=(10, 0))
+        ).grid(
+            row=len(self.RESULT_LABELS),
+            column=0,
+            columnspan=2,
+            sticky=tk.EW,
+            pady=(10, 0),
+        )
 
         results_frame.columnconfigure(1, weight=1)
 
     def _build_realtime_panel(self, parent):
+        """Construye el panel con los valores actualizados durante la animación."""
         realtime_frame = ttk.LabelFrame(
             parent,
             text="Visualización en tiempo real",
@@ -215,16 +248,13 @@ class ProjectileSimulator:
         )
         realtime_frame.pack(fill=tk.X)
 
-        realtime_labels = [
-            ("time", "Tiempo transcurrido:"),
-            ("x", "Posición horizontal:"),
-            ("y", "Posición vertical:"),
-            ("vx", "Velocidad horizontal:"),
-            ("vy", "Velocidad vertical:"),
-        ]
-
-        for row, (key, label_text) in enumerate(realtime_labels):
-            ttk.Label(realtime_frame, text=label_text).grid(row=row, column=0, sticky=tk.W, pady=2)
+        for row, (key, label_text) in enumerate(self.REALTIME_LABELS):
+            ttk.Label(realtime_frame, text=label_text).grid(
+                row=row,
+                column=0,
+                sticky=tk.W,
+                pady=2,
+            )
             self.realtime_vars[key] = tk.StringVar(value="--")
             ttk.Label(realtime_frame, textvariable=self.realtime_vars[key]).grid(
                 row=row, column=1, sticky=tk.E, pady=2
@@ -233,6 +263,7 @@ class ProjectileSimulator:
         realtime_frame.columnconfigure(1, weight=1)
 
     def _build_plot(self, parent):
+        """Inicializa la figura de Matplotlib embebida en Tkinter."""
         self.figure = Figure(figsize=(8, 5), dpi=100)
         self.ax = self.figure.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.figure, master=parent)
@@ -240,23 +271,24 @@ class ProjectileSimulator:
         self._setup_empty_plot()
 
     def _update_playback_label(self, _event=None):
+        """Sincroniza la etiqueta visible con el valor del control deslizante."""
         self.playback_label.config(text=f"{self.playback_var.get():.2f}x")
 
     def _load_cannon_image(self):
-        """Carga el simbolo del canon si el archivo esta disponible."""
+        """Carga el símbolo del cañón si el archivo está disponible."""
         if not self.CANNON_IMAGE_PATH.exists():
             return None
         return mpimg.imread(self.CANNON_IMAGE_PATH)
 
     def copy_to_clipboard(self, text, confirmation):
-        """Copia texto al portapapeles del sistema."""
+        """Copia texto al portapapeles del sistema y confirma la acción."""
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
         self.root.update()
         messagebox.showinfo("Copiado", confirmation)
 
     def copy_all_results(self):
-        """Copia todos los resultados generales en formato de texto."""
+        """Copia los resultados generales visibles en formato de texto."""
         lines = []
         for key, label in self.result_labels.items():
             lines.append(f"{label.rstrip(':')}: {self.result_vars[key].get()}")
@@ -267,7 +299,7 @@ class ProjectileSimulator:
         )
 
     def validate_manual_inputs(self):
-        """Valida velocidad y angulo para la simulacion manual."""
+        """Valida velocidad y ángulo para el modo manual."""
         try:
             velocity = float(self.velocity_entry.get())
             angle = float(self.angle_entry.get())
@@ -300,7 +332,7 @@ class ProjectileSimulator:
         }
 
     def validate_distance_inputs(self):
-        """Valida la distancia objetivo para la simulacion ideal."""
+        """Valida la distancia objetivo para el modo de alcance ideal."""
         try:
             target_range = float(self.target_range_entry.get())
         except ValueError:
@@ -326,29 +358,29 @@ class ProjectileSimulator:
         }
 
     def validate_playback_speed(self):
-        """Valida el factor de reproduccion compartido por ambos modos."""
+        """Valida el factor de reproducción compartido por ambos modos."""
         try:
             playback_speed = float(self.playback_var.get())
         except ValueError:
-            return 1.0
+            return self.DEFAULT_PLAYBACK_SPEED
 
-        return max(playback_speed, 0.25)
+        return max(playback_speed, self.MIN_PLAYBACK_SPEED)
 
     def get_launch_settings(self):
-        """Obtiene los valores de lanzamiento segun la pestaña activa."""
+        """Obtiene los valores de lanzamiento según la pestaña activa."""
         active_tab = self.simulation_notebook.index("current")
         if active_tab == 0:
             return self.validate_manual_inputs()
         return self.validate_distance_inputs()
 
     def calculate_ideal_launch_for_range(self, target_range):
-        """Calcula la velocidad minima ideal para llegar a una distancia."""
-        angle_degrees = 45.0
+        """Calcula la velocidad mínima ideal para un alcance horizontal dado."""
+        angle_degrees = self.IDEAL_ANGLE_DEGREES
         initial_velocity = np.sqrt(target_range * self.GRAVITY)
         return initial_velocity, angle_degrees
 
     def calculate_trajectory(self, initial_velocity, angle_degrees):
-        """Calcula trayectoria, velocidades y magnitudes principales."""
+        """Calcula posiciones, velocidades y magnitudes de la trayectoria."""
         angle_radians = np.radians(angle_degrees)
         v0x = initial_velocity * np.cos(angle_radians)
         v0y = initial_velocity * np.sin(angle_radians)
@@ -357,7 +389,10 @@ class ProjectileSimulator:
         height_max = v0y**2 / (2 * self.GRAVITY)
         range_x = v0x * time_total
 
-        frames = max(90, int(time_total * 90))
+        frames = max(
+            self.MIN_TRAJECTORY_FRAMES,
+            int(time_total * self.FRAMES_PER_SECOND_OF_FLIGHT),
+        )
         time_values = np.linspace(0, time_total, frames)
         x_values = v0x * time_values
         y_values = v0y * time_values - 0.5 * self.GRAVITY * time_values**2
@@ -382,7 +417,7 @@ class ProjectileSimulator:
         }
 
     def start_animation(self):
-        """Inicia una nueva simulacion y animacion."""
+        """Inicia una nueva simulación con los valores de la pestaña activa."""
         launch_settings = self.get_launch_settings()
         if launch_settings is None:
             return
@@ -402,7 +437,10 @@ class ProjectileSimulator:
         self._update_general_results(frame=0)
         self._setup_simulation_plot(angle)
 
-        interval_ms = max(8, int(25 / playback_speed))
+        interval_ms = max(
+            self.MIN_ANIMATION_INTERVAL_MS,
+            int(self.BASE_ANIMATION_INTERVAL_MS / playback_speed),
+        )
         frame_count = len(self.trajectory["time"])
         self.animation = animation.FuncAnimation(
             self.figure,
@@ -415,7 +453,7 @@ class ProjectileSimulator:
         self.canvas.draw_idle()
 
     def update_frame(self, frame):
-        """Actualiza cada cuadro de la animacion."""
+        """Actualiza la bala, la trayectoria recorrida y los datos en pantalla."""
         if self.trajectory is None:
             return []
 
@@ -436,7 +474,7 @@ class ProjectileSimulator:
         return [self.ball_artist, self.path_artist]
 
     def reset_simulation(self):
-        """Limpia la grafica y los paneles para una nueva simulacion."""
+        """Limpia la gráfica y los paneles para una nueva simulación."""
         self._stop_animation()
         self.trajectory = None
         self.simulation_context = {}
@@ -450,11 +488,13 @@ class ProjectileSimulator:
         self.canvas.draw_idle()
 
     def _stop_animation(self):
+        """Detiene la animación activa, si existe."""
         if self.animation is not None and self.animation.event_source is not None:
             self.animation.event_source.stop()
         self.animation = None
 
     def _setup_empty_plot(self):
+        """Dibuja el estado inicial de la gráfica antes de una simulación."""
         self.ax.clear()
         self.ax.set_title("Trayectoria de la bala de cañón")
         self.ax.set_xlabel("Posición horizontal x (m)")
@@ -467,6 +507,7 @@ class ProjectileSimulator:
         self.ax.legend(loc="upper right")
 
     def _setup_simulation_plot(self, angle_degrees):
+        """Prepara la gráfica con límites y marcadores de la trayectoria."""
         self.ax.clear()
 
         range_x = self.trajectory["range_x"]
@@ -529,6 +570,7 @@ class ProjectileSimulator:
         self.canvas.draw_idle()
 
     def _draw_cannon(self, angle_degrees):
+        """Dibuja el cañón en el origen usando imagen o figuras simples."""
         if self.cannon_image is not None:
             image = OffsetImage(self.cannon_image, zoom=0.82)
             cannon_symbol = AnnotationBbox(
@@ -576,6 +618,7 @@ class ProjectileSimulator:
         self.ax.add_patch(base)
 
     def _update_general_results(self, frame):
+        """Actualiza las magnitudes generales mostradas en el panel."""
         if self.trajectory is None:
             return
 
@@ -599,6 +642,7 @@ class ProjectileSimulator:
         self.result_vars["current_speed"].set(f"{self.trajectory['speed'][frame]:.2f} m/s")
 
     def _update_realtime_values(self, frame):
+        """Actualiza los valores instantáneos del cuadro actual."""
         self.realtime_vars["time"].set(f"{self.trajectory['time'][frame]:.2f} s")
         self.realtime_vars["x"].set(f"{self.trajectory['x'][frame]:.2f} m")
         self.realtime_vars["y"].set(f"{self.trajectory['y'][frame]:.2f} m")
