@@ -46,13 +46,16 @@ python projectile_simulator.py
 
 ## Uso
 
-1. Introduzca la velocidad inicial en metros por segundo.
-2. Introduzca el ángulo de lanzamiento en grados.
-3. Ajuste la velocidad de reproducción si desea una animación más lenta o rápida.
-4. Presione **Lanzar proyectil**.
-5. Use **Reiniciar** para limpiar la simulación e ingresar nuevos valores.
+1. Seleccione una de las dos pestañas de simulación:
+   - **Velocidad y ángulo**: introduzca la velocidad inicial y el ángulo de lanzamiento.
+   - **Distancia objetivo**: introduzca la distancia horizontal que debe alcanzar la bala.
+2. Ajuste la velocidad de reproducción si desea una animación más lenta o rápida.
+3. Presione **Lanzar proyectil**.
+4. Use **Reiniciar** para limpiar la simulación e ingresar nuevos valores.
 
-La interfaz valida que la velocidad sea mayor que cero, que el ángulo sea mayor que 0° y menor que 90°, y que ambos campos contengan valores numéricos.
+La interfaz valida que los campos contengan valores numéricos, que la velocidad
+sea mayor que cero, que el ángulo sea mayor que 0° y menor que 90°, y que la
+distancia objetivo sea mayor que cero.
 
 ## Modelo físico
 
@@ -94,9 +97,28 @@ Altura máxima = v0y^2 / (2g)
 Alcance horizontal = v0x * tiempo_total
 ```
 
+## Simulación por distancia objetivo
+
+En el modo **Distancia objetivo**, el usuario introduce el alcance horizontal
+deseado. El programa calcula la trayectoria ideal de alcance máximo usando:
+
+```text
+theta = 45°
+R = v0^2 sin(2 theta) / g
+```
+
+Como `theta = 45°`, entonces `sin(90°) = 1`, por lo que:
+
+```text
+v0 = sqrt(Rg)
+```
+
+Con esa velocidad inicial calculada y el ángulo ideal de 45°, el simulador
+genera la misma animación de trayectoria parabólica.
+
 ## Ejemplo de prueba
 
-Con:
+Modo **Velocidad y ángulo**:
 
 ```text
 Velocidad inicial: 13 m/s
@@ -110,6 +132,20 @@ Velocidad horizontal: 11.26 m/s
 Velocidad vertical inicial: 6.50 m/s
 Tiempo de vuelo: 1.33 s
 Altura máxima: 2.15 m
+Alcance horizontal: 14.92 m
+```
+
+Modo **Distancia objetivo**:
+
+```text
+Distancia objetivo: 14.92 m
+```
+
+El programa debe calcular aproximadamente:
+
+```text
+Ángulo usado: 45°
+Velocidad inicial usada: 12.10 m/s
 Alcance horizontal: 14.92 m
 ```
 
