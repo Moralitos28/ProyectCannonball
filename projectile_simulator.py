@@ -22,12 +22,13 @@ class ProjectileSimulator:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Simulador de movimiento parabolico")
+        self.root.title("Simulador de movimiento parabólico")
         self.root.geometry("1180x760")
         self.root.minsize(980, 680)
 
         self.animation = None
         self.trajectory = None
+        self.simulation_context = {}
         self.cannon_patch = None
         self.cannon_wheel = None
         self.ball_artist = None
@@ -90,22 +91,45 @@ class ProjectileSimulator:
         )
         input_frame.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(input_frame, text="Velocidad inicial (m/s):").grid(
+        self.simulation_notebook = ttk.Notebook(input_frame)
+        self.simulation_notebook.grid(row=0, column=0, columnspan=2, sticky=tk.EW)
+
+        manual_tab = ttk.Frame(self.simulation_notebook, padding=10)
+        ideal_tab = ttk.Frame(self.simulation_notebook, padding=10)
+        self.simulation_notebook.add(manual_tab, text="Velocidad y ángulo")
+        self.simulation_notebook.add(ideal_tab, text="Distancia objetivo")
+
+        ttk.Label(manual_tab, text="Velocidad inicial (m/s):").grid(
             row=0, column=0, sticky=tk.W, pady=4
         )
-        self.velocity_entry = ttk.Entry(input_frame, width=18)
+        self.velocity_entry = ttk.Entry(manual_tab, width=18)
         self.velocity_entry.grid(row=0, column=1, sticky=tk.EW, pady=4)
         self.velocity_entry.insert(0, "13")
 
-        ttk.Label(input_frame, text="Ángulo de lanzamiento (°):").grid(
+        ttk.Label(manual_tab, text="Ángulo de lanzamiento (°):").grid(
             row=1, column=0, sticky=tk.W, pady=4
         )
-        self.angle_entry = ttk.Entry(input_frame, width=18)
+        self.angle_entry = ttk.Entry(manual_tab, width=18)
         self.angle_entry.grid(row=1, column=1, sticky=tk.EW, pady=4)
         self.angle_entry.insert(0, "30")
+        manual_tab.columnconfigure(1, weight=1)
+
+        ttk.Label(ideal_tab, text="Distancia objetivo (m):").grid(
+            row=0, column=0, sticky=tk.W, pady=4
+        )
+        self.target_range_entry = ttk.Entry(ideal_tab, width=18)
+        self.target_range_entry.grid(row=0, column=1, sticky=tk.EW, pady=4)
+        self.target_range_entry.insert(0, "14.92")
+
+        ttk.Label(
+            ideal_tab,
+            text="Usa 45° y calcula la velocidad mínima ideal.",
+            foreground="dimgray",
+        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+        ideal_tab.columnconfigure(1, weight=1)
 
         ttk.Label(input_frame, text="Velocidad de reproducción:").grid(
-            row=2, column=0, sticky=tk.W, pady=4
+            row=1, column=0, sticky=tk.W, pady=(12, 4)
         )
         self.playback_var = tk.DoubleVar(value=1.0)
         self.playback_scale = ttk.Scale(
@@ -116,9 +140,9 @@ class ProjectileSimulator:
             orient=tk.HORIZONTAL,
             command=self._update_playback_label,
         )
-        self.playback_scale.grid(row=2, column=1, sticky=tk.EW, pady=4)
+        self.playback_scale.grid(row=1, column=1, sticky=tk.EW, pady=(12, 4))
         self.playback_label = ttk.Label(input_frame, text="1.00x")
-        self.playback_label.grid(row=3, column=1, sticky=tk.E, pady=(0, 8))
+        self.playback_label.grid(row=2, column=1, sticky=tk.E, pady=(0, 8))
 
         launch_button = ttk.Button(
             input_frame,
@@ -126,14 +150,14 @@ class ProjectileSimulator:
             command=self.start_animation,
             style="Accent.TButton",
         )
-        launch_button.grid(row=4, column=0, columnspan=2, sticky=tk.EW, pady=(8, 4))
+        launch_button.grid(row=3, column=0, columnspan=2, sticky=tk.EW, pady=(8, 4))
 
         reset_button = ttk.Button(
             input_frame,
             text="Reiniciar",
             command=self.reset_simulation,
         )
-        reset_button.grid(row=5, column=0, columnspan=2, sticky=tk.EW, pady=4)
+        reset_button.grid(row=4, column=0, columnspan=2, sticky=tk.EW, pady=4)
 
         input_frame.columnconfigure(1, weight=1)
 
@@ -147,6 +171,10 @@ class ProjectileSimulator:
         results_frame.pack(fill=tk.X, pady=(0, 10))
 
         result_labels = [
+            ("mode", "Modo de simulación:"),
+            ("target_range", "Distancia objetivo:"),
+            ("initial_velocity", "Velocidad inicial usada:"),
+            ("launch_angle", "Ángulo usado:"),
             ("v0x", "Velocidad horizontal:"),
             ("v0y", "Velocidad vertical inicial:"),
             ("time_total", "Tiempo total de vuelo:"),
@@ -201,12 +229,11 @@ class ProjectileSimulator:
     def _update_playback_label(self, _event=None):
         self.playback_label.config(text=f"{self.playback_var.get():.2f}x")
 
-    def validate_inputs(self):
-        """Valida y convierte las entradas del usuario."""
+    def validate_manual_inputs(self):
+        """Valida velocidad y angulo para la simulacion manual."""
         try:
             velocity = float(self.velocity_entry.get())
             angle = float(self.angle_entry.get())
-            playback_speed = float(self.playback_var.get())
         except ValueError:
             messagebox.showerror(
                 "Entrada inválida",
@@ -228,7 +255,60 @@ class ProjectileSimulator:
             )
             return None
 
-        return velocity, angle, max(playback_speed, 0.25)
+        return {
+            "initial_velocity": velocity,
+            "angle": angle,
+            "mode": "Velocidad y ángulo",
+            "target_range": None,
+        }
+
+    def validate_distance_inputs(self):
+        """Valida la distancia objetivo para la simulacion ideal."""
+        try:
+            target_range = float(self.target_range_entry.get())
+        except ValueError:
+            messagebox.showerror(
+                "Entrada inválida",
+                "La distancia objetivo debe contener un valor numérico.",
+            )
+            return None
+
+        if target_range <= 0:
+            messagebox.showerror(
+                "Entrada inválida",
+                "La distancia objetivo debe ser mayor que cero.",
+            )
+            return None
+
+        initial_velocity, angle = self.calculate_ideal_launch_for_range(target_range)
+        return {
+            "initial_velocity": initial_velocity,
+            "angle": angle,
+            "mode": "Distancia objetivo",
+            "target_range": target_range,
+        }
+
+    def validate_playback_speed(self):
+        """Valida el factor de reproduccion compartido por ambos modos."""
+        try:
+            playback_speed = float(self.playback_var.get())
+        except ValueError:
+            return 1.0
+
+        return max(playback_speed, 0.25)
+
+    def get_launch_settings(self):
+        """Obtiene los valores de lanzamiento segun la pestaña activa."""
+        active_tab = self.simulation_notebook.index("current")
+        if active_tab == 0:
+            return self.validate_manual_inputs()
+        return self.validate_distance_inputs()
+
+    def calculate_ideal_launch_for_range(self, target_range):
+        """Calcula la velocidad minima ideal para llegar a una distancia."""
+        angle_degrees = 45.0
+        initial_velocity = np.sqrt(target_range * self.GRAVITY)
+        return initial_velocity, angle_degrees
 
     def calculate_trajectory(self, initial_velocity, angle_degrees):
         """Calcula trayectoria, velocidades y magnitudes principales."""
@@ -266,14 +346,22 @@ class ProjectileSimulator:
 
     def start_animation(self):
         """Inicia una nueva simulacion y animacion."""
-        validated_values = self.validate_inputs()
-        if validated_values is None:
+        launch_settings = self.get_launch_settings()
+        if launch_settings is None:
             return
 
-        initial_velocity, angle, playback_speed = validated_values
+        initial_velocity = launch_settings["initial_velocity"]
+        angle = launch_settings["angle"]
+        playback_speed = self.validate_playback_speed()
         self._stop_animation()
 
         self.trajectory = self.calculate_trajectory(initial_velocity, angle)
+        self.simulation_context = {
+            "mode": launch_settings["mode"],
+            "target_range": launch_settings["target_range"],
+            "initial_velocity": initial_velocity,
+            "angle": angle,
+        }
         self._update_general_results(frame=0)
         self._setup_simulation_plot(angle)
 
@@ -314,6 +402,7 @@ class ProjectileSimulator:
         """Limpia la grafica y los paneles para una nueva simulacion."""
         self._stop_animation()
         self.trajectory = None
+        self.simulation_context = {}
         self._setup_empty_plot()
 
         for variable in self.result_vars.values():
@@ -439,6 +528,17 @@ class ProjectileSimulator:
         if self.trajectory is None:
             return
 
+        target_range = self.simulation_context.get("target_range")
+        target_text = "--" if target_range is None else f"{target_range:.2f} m"
+
+        self.result_vars["mode"].set(self.simulation_context.get("mode", "--"))
+        self.result_vars["target_range"].set(target_text)
+        self.result_vars["initial_velocity"].set(
+            f"{self.simulation_context.get('initial_velocity', 0.0):.2f} m/s"
+        )
+        self.result_vars["launch_angle"].set(
+            f"{self.simulation_context.get('angle', 0.0):.2f}°"
+        )
         self.result_vars["v0x"].set(f"{self.trajectory['v0x']:.2f} m/s")
         self.result_vars["v0y"].set(f"{self.trajectory['v0y']:.2f} m/s")
         self.result_vars["time_total"].set(f"{self.trajectory['time_total']:.2f} s")
