@@ -36,9 +36,21 @@ class ProjectileSimulator:
     MIN_ANIMATION_INTERVAL_MS = 8
     MIN_TRAJECTORY_FRAMES = 90
     FRAMES_PER_SECOND_OF_FLIGHT = 90
+    EARTH_RADIUS_KM = 6371.0
+    FLIGHT_MAX_ALTITUDE_KM = 10.0
+    EARTH_ROUTE_FRAMES = 160
+    DEFAULT_ORIGIN_LAT = "9.9281"
+    DEFAULT_ORIGIN_LON = "-84.0907"
+    DEFAULT_DEST_LAT = "40.7128"
+    DEFAULT_DEST_LON = "-74.0060"
     INITIAL_MATH_EXPLANATION = (
         "Lanza una simulación para ver el desarrollo matemático con "
         "sustituciones numéricas."
+    )
+    EARTH_MATH_EXPLANATION = (
+        "La pestaña Math Explained muestra el desarrollo de las simulaciones "
+        "parabólicas 2D. Para la ruta GPS 3D se usa una esfera terrestre en km "
+        "y una altura máxima fija de 10 km."
     )
     INITIAL_MATH_BLOCKS = [
         ("note", INITIAL_MATH_EXPLANATION),
@@ -55,6 +67,11 @@ class ProjectileSimulator:
         ("range_x", "Alcance horizontal:"),
         ("current_vy", "Velocidad vertical actual:"),
         ("current_speed", "Rapidez total actual:"),
+        ("gps_origin", "Origen GPS:"),
+        ("gps_destination", "Destino GPS:"),
+        ("earth_radius", "Radio terrestre:"),
+        ("surface_distance", "Distancia sobre superficie:"),
+        ("flight_altitude", "Altura máxima de vuelo:"),
     ]
     REALTIME_LABELS = [
         ("time", "Tiempo transcurrido:"),
@@ -78,6 +95,14 @@ class ProjectileSimulator:
         self.path_artist = None
         self.max_height_artist = None
         self.impact_artist = None
+        self.earth_figure = None
+        self.earth_ax = None
+        self.earth_canvas = None
+        self.earth_animation = None
+        self.earth_route = None
+        self.plane_artist = None
+        self.earth_route_artist = None
+        self.output_notebook = None
 
         self.result_vars = {}
         self.result_labels = {}
@@ -117,18 +142,51 @@ class ProjectileSimulator:
         content.columnconfigure(1, weight=1)
         content.rowconfigure(0, weight=1)
 
-        sidebar = ttk.Frame(content)
-        sidebar.grid(row=0, column=0, sticky="ns", padx=(0, 12))
+        sidebar_container = ttk.Frame(content)
+        sidebar_container.grid(row=0, column=0, sticky="ns", padx=(0, 12))
+        sidebar_container.rowconfigure(0, weight=1)
+        sidebar_container.columnconfigure(0, weight=1)
 
         graph_panel = ttk.Frame(content)
         graph_panel.grid(row=0, column=1, sticky="nsew")
         graph_panel.rowconfigure(0, weight=1)
         graph_panel.columnconfigure(0, weight=1)
 
+        sidebar = self._build_scrollable_sidebar(sidebar_container)
         self._build_input_panel(sidebar)
         self._build_results_panel(sidebar)
         self._build_realtime_panel(sidebar)
         self._build_output_notebook(graph_panel)
+
+    def _build_scrollable_sidebar(self, parent):
+        """Crea un panel lateral con scroll vertical."""
+        canvas = tk.Canvas(parent, width=390, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
+        sidebar = ttk.Frame(canvas)
+        sidebar_window = canvas.create_window((0, 0), window=sidebar, anchor=tk.NW)
+
+        canvas.grid(row=0, column=0, sticky="ns")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        def update_scroll_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def match_canvas_width(event):
+            canvas.itemconfigure(sidebar_window, width=event.width)
+
+        def scroll_with_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        sidebar.bind("<Configure>", update_scroll_region)
+        canvas.bind("<Configure>", match_canvas_width)
+        canvas.bind(
+            "<Enter>",
+            lambda _event: canvas.bind_all("<MouseWheel>", scroll_with_mousewheel),
+        )
+        canvas.bind("<Leave>", lambda _event: canvas.unbind_all("<MouseWheel>"))
+
+        return sidebar
 
     def _build_input_panel(self, parent):
         """Construye los campos de entrada y controles de simulación."""
@@ -145,8 +203,10 @@ class ProjectileSimulator:
 
         manual_tab = ttk.Frame(self.simulation_notebook, padding=10)
         ideal_tab = ttk.Frame(self.simulation_notebook, padding=10)
+        earth_tab = ttk.Frame(self.simulation_notebook, padding=10)
         self.simulation_notebook.add(manual_tab, text="Velocidad y ángulo")
         self.simulation_notebook.add(ideal_tab, text="Distancia objetivo")
+        self.simulation_notebook.add(earth_tab, text="Ruta GPS 3D")
 
         ttk.Label(manual_tab, text="Velocidad inicial (m/s):").grid(
             row=0, column=0, sticky=tk.W, pady=4
@@ -176,6 +236,31 @@ class ProjectileSimulator:
             foreground="dimgray",
         ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
         ideal_tab.columnconfigure(1, weight=1)
+
+        gps_fields = [
+            ("Latitud origen (°):", "origin_lat_entry", self.DEFAULT_ORIGIN_LAT),
+            ("Longitud origen (°):", "origin_lon_entry", self.DEFAULT_ORIGIN_LON),
+            ("Latitud destino (°):", "dest_lat_entry", self.DEFAULT_DEST_LAT),
+            ("Longitud destino (°):", "dest_lon_entry", self.DEFAULT_DEST_LON),
+        ]
+        for row, (label_text, attr_name, default_value) in enumerate(gps_fields):
+            ttk.Label(earth_tab, text=label_text).grid(
+                row=row,
+                column=0,
+                sticky=tk.W,
+                pady=4,
+            )
+            entry = ttk.Entry(earth_tab, width=18)
+            entry.grid(row=row, column=1, sticky=tk.EW, pady=4)
+            entry.insert(0, default_value)
+            setattr(self, attr_name, entry)
+
+        ttk.Label(
+            earth_tab,
+            text="Escala en km; altura máxima fija de 10 km.",
+            foreground="dimgray",
+        ).grid(row=len(gps_fields), column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+        earth_tab.columnconfigure(1, weight=1)
 
         ttk.Label(input_frame, text="Velocidad de reproducción:").grid(
             row=1, column=0, sticky=tk.W, pady=(12, 4)
@@ -281,21 +366,26 @@ class ProjectileSimulator:
 
     def _build_output_notebook(self, parent):
         """Construye las pestañas de gráfica y explicación matemática."""
-        output_notebook = ttk.Notebook(parent)
-        output_notebook.grid(row=0, column=0, sticky="nsew")
+        self.output_notebook = ttk.Notebook(parent)
+        self.output_notebook.grid(row=0, column=0, sticky="nsew")
 
-        trajectory_tab = ttk.Frame(output_notebook)
-        math_tab = ttk.Frame(output_notebook)
-        output_notebook.add(trajectory_tab, text="Trajectory")
-        output_notebook.add(math_tab, text="Math Explained")
+        trajectory_tab = ttk.Frame(self.output_notebook)
+        math_tab = ttk.Frame(self.output_notebook)
+        earth_tab = ttk.Frame(self.output_notebook)
+        self.output_notebook.add(trajectory_tab, text="Trajectory")
+        self.output_notebook.add(math_tab, text="Math Explained")
+        self.output_notebook.add(earth_tab, text="Earth 3D")
 
         trajectory_tab.rowconfigure(0, weight=1)
         trajectory_tab.columnconfigure(0, weight=1)
         math_tab.rowconfigure(1, weight=1)
         math_tab.columnconfigure(0, weight=1)
+        earth_tab.rowconfigure(0, weight=1)
+        earth_tab.columnconfigure(0, weight=1)
 
         self._build_plot(trajectory_tab)
         self._build_math_panel(math_tab)
+        self._build_earth_plot(earth_tab)
 
     def _build_math_panel(self, parent):
         """Construye la vista scrollable del desarrollo matemático."""
@@ -330,6 +420,14 @@ class ProjectileSimulator:
         )
         scrollbar.grid(row=1, column=1, sticky="ns")
         self.math_text_widget.configure(yscrollcommand=scrollbar.set)
+
+    def _build_earth_plot(self, parent):
+        """Inicializa la figura 3D para la ruta aérea sobre la Tierra."""
+        self.earth_figure = Figure(figsize=(8, 5), dpi=100)
+        self.earth_ax = self.earth_figure.add_subplot(111, projection="3d")
+        self.earth_canvas = FigureCanvasTkAgg(self.earth_figure, master=parent)
+        self.earth_canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+        self._setup_earth_plot()
 
     def _configure_math_text_tags(self):
         """Define estilos para la explicación matemática."""
@@ -442,6 +540,9 @@ class ProjectileSimulator:
 
     def build_math_explanation(self):
         """Construye el desarrollo matemático con los valores actuales."""
+        if self.simulation_context.get("mode") == "Ruta GPS 3D":
+            return self.EARTH_MATH_EXPLANATION
+
         if self.trajectory is None:
             return self.INITIAL_MATH_EXPLANATION
 
@@ -517,6 +618,9 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
 
     def build_math_blocks(self):
         """Construye bloques etiquetados para renderizar la explicación."""
+        if self.simulation_context.get("mode") == "Ruta GPS 3D":
+            return [("note", self.EARTH_MATH_EXPLANATION)]
+
         if self.trajectory is None:
             return self.INITIAL_MATH_BLOCKS
 
@@ -688,6 +792,43 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
             "target_range": target_range,
         }
 
+    def validate_gps_inputs(self):
+        """Valida coordenadas GPS para la simulación 3D."""
+        try:
+            origin_lat = float(self.origin_lat_entry.get())
+            origin_lon = float(self.origin_lon_entry.get())
+            dest_lat = float(self.dest_lat_entry.get())
+            dest_lon = float(self.dest_lon_entry.get())
+        except ValueError:
+            messagebox.showerror(
+                "Entrada inválida",
+                "Todas las coordenadas GPS deben contener valores numéricos.",
+            )
+            return None
+
+        coordinates = [
+            ("Latitud origen", origin_lat, -90, 90),
+            ("Latitud destino", dest_lat, -90, 90),
+            ("Longitud origen", origin_lon, -180, 180),
+            ("Longitud destino", dest_lon, -180, 180),
+        ]
+        for label, value, minimum, maximum in coordinates:
+            if value < minimum or value > maximum:
+                messagebox.showerror(
+                    "Entrada inválida",
+                    f"{label} debe estar entre {minimum}° y {maximum}°.",
+                )
+                return None
+
+        if np.isclose(origin_lat, dest_lat) and np.isclose(origin_lon, dest_lon):
+            messagebox.showerror(
+                "Entrada inválida",
+                "El origen y el destino GPS no pueden ser idénticos.",
+            )
+            return None
+
+        return origin_lat, origin_lon, dest_lat, dest_lon
+
     def validate_playback_speed(self):
         """Valida el factor de reproducción compartido por ambos modos."""
         try:
@@ -702,7 +843,60 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
         active_tab = self.simulation_notebook.index("current")
         if active_tab == 0:
             return self.validate_manual_inputs()
-        return self.validate_distance_inputs()
+        if active_tab == 1:
+            return self.validate_distance_inputs()
+        return None
+
+    def gps_to_cartesian(self, latitude, longitude, radius):
+        """Convierte coordenadas GPS a coordenadas cartesianas 3D."""
+        lat_rad = np.radians(latitude)
+        lon_rad = np.radians(longitude)
+        x_value = radius * np.cos(lat_rad) * np.cos(lon_rad)
+        y_value = radius * np.cos(lat_rad) * np.sin(lon_rad)
+        z_value = radius * np.sin(lat_rad)
+        return np.array([x_value, y_value, z_value])
+
+    def calculate_earth_route(self, origin_lat, origin_lon, dest_lat, dest_lon):
+        """Calcula una ruta aérea arqueada sobre una Tierra esférica."""
+        origin = self.gps_to_cartesian(origin_lat, origin_lon, self.EARTH_RADIUS_KM)
+        destination = self.gps_to_cartesian(dest_lat, dest_lon, self.EARTH_RADIUS_KM)
+        origin_unit = origin / np.linalg.norm(origin)
+        destination_unit = destination / np.linalg.norm(destination)
+
+        dot_product = np.clip(np.dot(origin_unit, destination_unit), -1.0, 1.0)
+        central_angle = np.arccos(dot_product)
+        sin_angle = np.sin(central_angle)
+
+        progress = np.linspace(0.0, 1.0, self.EARTH_ROUTE_FRAMES)
+        if np.isclose(sin_angle, 0.0):
+            directions = np.outer(1.0 - progress, origin_unit) + np.outer(
+                progress,
+                destination_unit,
+            )
+            directions /= np.linalg.norm(directions, axis=1)[:, np.newaxis]
+        else:
+            start_weights = np.sin((1.0 - progress) * central_angle) / sin_angle
+            end_weights = np.sin(progress * central_angle) / sin_angle
+            directions = (
+                start_weights[:, np.newaxis] * origin_unit
+                + end_weights[:, np.newaxis] * destination_unit
+            )
+
+        altitude = 4 * self.FLIGHT_MAX_ALTITUDE_KM * progress * (1 - progress)
+        radius_values = self.EARTH_RADIUS_KM + altitude
+        route_points = directions * radius_values[:, np.newaxis]
+
+        return {
+            "origin_lat": origin_lat,
+            "origin_lon": origin_lon,
+            "dest_lat": dest_lat,
+            "dest_lon": dest_lon,
+            "origin": origin,
+            "destination": destination,
+            "points": route_points,
+            "altitude": altitude,
+            "surface_distance": self.EARTH_RADIUS_KM * central_angle,
+        }
 
     def calculate_ideal_launch_for_range(self, target_range):
         """Calcula la velocidad mínima ideal para un alcance horizontal dado."""
@@ -749,6 +943,15 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
 
     def start_animation(self):
         """Inicia una nueva simulación con los valores de la pestaña activa."""
+        if self.simulation_notebook.index("current") == 2:
+            gps_values = self.validate_gps_inputs()
+            if gps_values is None:
+                return
+
+            route_data = self.calculate_earth_route(*gps_values)
+            self.start_earth_animation(route_data)
+            return
+
         launch_settings = self.get_launch_settings()
         if launch_settings is None:
             return
@@ -757,6 +960,10 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
         angle = launch_settings["angle"]
         playback_speed = self.validate_playback_speed()
         self._stop_animation()
+        self._stop_earth_animation()
+        self.earth_route = None
+        self._setup_earth_plot()
+        self.output_notebook.select(0)
 
         self.trajectory = self.calculate_trajectory(initial_velocity, angle)
         self.simulation_context = {
@@ -808,9 +1015,12 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
     def reset_simulation(self):
         """Limpia la gráfica y los paneles para una nueva simulación."""
         self._stop_animation()
+        self._stop_earth_animation()
         self.trajectory = None
+        self.earth_route = None
         self.simulation_context = {}
         self._setup_empty_plot()
+        self._setup_earth_plot()
 
         for variable in self.result_vars.values():
             variable.set("--")
@@ -819,12 +1029,19 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
 
         self.update_math_explanation()
         self.canvas.draw_idle()
+        self.earth_canvas.draw_idle()
 
     def _stop_animation(self):
         """Detiene la animación activa, si existe."""
         if self.animation is not None and self.animation.event_source is not None:
             self.animation.event_source.stop()
         self.animation = None
+
+    def _stop_earth_animation(self):
+        """Detiene la animación 3D activa, si existe."""
+        if self.earth_animation is not None and self.earth_animation.event_source is not None:
+            self.earth_animation.event_source.stop()
+        self.earth_animation = None
 
     def _setup_empty_plot(self):
         """Dibuja el estado inicial de la gráfica antes de una simulación."""
@@ -902,6 +1119,127 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
         self.ax.legend(loc="upper right")
         self.canvas.draw_idle()
 
+    def _setup_earth_plot(self):
+        """Dibuja una Tierra esférica en escala de kilómetros."""
+        if self.earth_ax is None:
+            return
+
+        self.earth_ax.clear()
+        radius = self.EARTH_RADIUS_KM
+        longitude_values = np.linspace(0, 2 * np.pi, 72)
+        latitude_values = np.linspace(0, np.pi, 36)
+        sphere_x = radius * np.outer(np.cos(longitude_values), np.sin(latitude_values))
+        sphere_y = radius * np.outer(np.sin(longitude_values), np.sin(latitude_values))
+        sphere_z = radius * np.outer(
+            np.ones_like(longitude_values),
+            np.cos(latitude_values),
+        )
+
+        self.earth_ax.plot_surface(
+            sphere_x,
+            sphere_y,
+            sphere_z,
+            color="deepskyblue",
+            alpha=0.24,
+            linewidth=0,
+            shade=True,
+        )
+        self.earth_ax.set_title("Ruta aérea 3D sobre la Tierra")
+        self.earth_ax.set_xlabel("X (km)")
+        self.earth_ax.set_ylabel("Y (km)")
+        self.earth_ax.set_zlabel("Z (km)")
+
+        axis_limit = radius + 250
+        self.earth_ax.set_xlim(-axis_limit, axis_limit)
+        self.earth_ax.set_ylim(-axis_limit, axis_limit)
+        self.earth_ax.set_zlim(-axis_limit, axis_limit)
+        self.earth_ax.set_box_aspect((1, 1, 1))
+        self.earth_ax.view_init(elev=24, azim=-60)
+
+    def start_earth_animation(self, route_data):
+        """Inicia la animación 3D de una ruta aérea."""
+        self._stop_animation()
+        self._stop_earth_animation()
+        self.trajectory = None
+        self.earth_route = route_data
+        self.output_notebook.select(2)
+        self.simulation_context = {
+            "mode": "Ruta GPS 3D",
+            "target_range": None,
+            "initial_velocity": 0.0,
+            "angle": 0.0,
+        }
+
+        points = route_data["points"]
+        self._setup_earth_plot()
+        (self.earth_route_artist,) = self.earth_ax.plot(
+            points[:, 0],
+            points[:, 1],
+            points[:, 2],
+            color="crimson",
+            linewidth=2.8,
+            label="Ruta aérea",
+        )
+        self.earth_ax.scatter(
+            *route_data["origin"],
+            color="limegreen",
+            s=60,
+            label="Origen",
+            depthshade=True,
+        )
+        self.earth_ax.scatter(
+            *route_data["destination"],
+            color="darkorange",
+            s=60,
+            label="Destino",
+            depthshade=True,
+        )
+        (self.plane_artist,) = self.earth_ax.plot(
+            [points[0, 0]],
+            [points[0, 1]],
+            [points[0, 2]],
+            marker="^",
+            color="black",
+            markersize=9,
+            linestyle="None",
+            label="Avión",
+        )
+        self.earth_ax.legend(loc="upper right")
+        self._update_earth_results(frame=0)
+        self.current_math_explanation = self.EARTH_MATH_EXPLANATION
+        self.update_math_explanation()
+
+        playback_speed = self.validate_playback_speed()
+        interval_ms = max(
+            self.MIN_ANIMATION_INTERVAL_MS,
+            int(self.BASE_ANIMATION_INTERVAL_MS / playback_speed),
+        )
+        self.earth_animation = animation.FuncAnimation(
+            self.earth_figure,
+            self.update_earth_frame,
+            frames=len(points),
+            interval=interval_ms,
+            blit=False,
+            repeat=False,
+        )
+        self.earth_canvas.draw_idle()
+
+    def update_earth_frame(self, frame):
+        """Actualiza la posición del avión en la ruta 3D."""
+        if self.earth_route is None or self.plane_artist is None:
+            return []
+
+        points = self.earth_route["points"]
+        x_value, y_value, z_value = points[frame]
+        self.plane_artist.set_data([x_value], [y_value])
+        self.plane_artist.set_3d_properties([z_value])
+        self._update_earth_results(frame)
+
+        if frame >= len(points) - 1:
+            self._stop_earth_animation()
+
+        return [self.plane_artist]
+
     def _draw_cannon(self, angle_degrees):
         """Dibuja el cañón en el origen usando imagen o figuras simples."""
         if self.cannon_image is not None:
@@ -973,6 +1311,48 @@ X_max = {initial_velocity:.2f}² · sin(2 · {angle:.2f}°) /
         self.result_vars["range_x"].set(f"{self.trajectory['range_x']:.2f} m")
         self.result_vars["current_vy"].set(f"{self.trajectory['vy'][frame]:.2f} m/s")
         self.result_vars["current_speed"].set(f"{self.trajectory['speed'][frame]:.2f} m/s")
+        self.result_vars["gps_origin"].set("--")
+        self.result_vars["gps_destination"].set("--")
+        self.result_vars["earth_radius"].set("--")
+        self.result_vars["surface_distance"].set("--")
+        self.result_vars["flight_altitude"].set("--")
+
+    def _update_earth_results(self, frame):
+        """Actualiza los resultados del modo de ruta GPS 3D."""
+        if self.earth_route is None:
+            return
+
+        progress = frame / max(len(self.earth_route["points"]) - 1, 1)
+        current_point = self.earth_route["points"][frame]
+
+        self.result_vars["mode"].set("Ruta GPS 3D")
+        self.result_vars["target_range"].set("--")
+        self.result_vars["initial_velocity"].set("--")
+        self.result_vars["launch_angle"].set("--")
+        self.result_vars["v0x"].set("--")
+        self.result_vars["v0y"].set("--")
+        self.result_vars["time_total"].set("--")
+        self.result_vars["height_max"].set("--")
+        self.result_vars["range_x"].set("--")
+        self.result_vars["current_vy"].set("--")
+        self.result_vars["current_speed"].set("--")
+        self.result_vars["gps_origin"].set(
+            f"{self.earth_route['origin_lat']:.4f}°, {self.earth_route['origin_lon']:.4f}°"
+        )
+        self.result_vars["gps_destination"].set(
+            f"{self.earth_route['dest_lat']:.4f}°, {self.earth_route['dest_lon']:.4f}°"
+        )
+        self.result_vars["earth_radius"].set(f"{self.EARTH_RADIUS_KM:.0f} km")
+        self.result_vars["surface_distance"].set(
+            f"{self.earth_route['surface_distance']:.2f} km"
+        )
+        self.result_vars["flight_altitude"].set(f"{self.FLIGHT_MAX_ALTITUDE_KM:.2f} km")
+
+        self.realtime_vars["time"].set(f"{progress * 100:.1f} %")
+        self.realtime_vars["x"].set(f"{current_point[0]:.2f} km")
+        self.realtime_vars["y"].set(f"{current_point[1]:.2f} km")
+        self.realtime_vars["vx"].set(f"{current_point[2]:.2f} km")
+        self.realtime_vars["vy"].set(f"{self.earth_route['altitude'][frame]:.2f} km")
 
     def _update_realtime_values(self, frame):
         """Actualiza los valores instantáneos del cuadro actual."""
